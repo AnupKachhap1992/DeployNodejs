@@ -1,0 +1,51 @@
+name: deploy_development
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*.*.*"
+
+concurrency: deploy_development-${{ github.ref }}
+  
+jobs:
+  
+  set_env:
+    runs-on: ubuntu-latest
+    steps:
+      - id: set_env
+        run: |
+          if [ ${{ github.ref_type }} == "branch" ]; then
+            echo "environment=staging" >> $GITHUB_OUTPUT
+            echo "Trigger was a push to ${{ github.ref_type }} ${{ github.ref_name }}, deploying to staging environment"
+          else
+            echo "environment=production" >> $GITHUB_OUTPUT
+            echo "Trigger was a push to ${{ github.ref_type }} ${{ github.ref_name }}, deploying to production environment"
+          fi
+    outputs:
+      environment: ${{ steps.set_env.outputs.environment }}
+  
+  build_publish_development:
+    if: github.ref_type == 'branch'
+    uses: ./.github/workflows/build.yml
+    with:
+      APPLICATION: cloudtech
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDTECH_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDTECH_AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.CLOUDTECH_AWS_REGION }}
+  
+  deploy_ecs_development_staging:
+    needs: [build_publish_development,set_env]
+    if: |
+      always() && 
+      (needs.set_env.result == 'success') && 
+      (needs.build_publish_development.result == 'success' || needs.build_publish_development.result == 'skipped')
+    uses: ./.github/workflows/deploy.yml
+    with:
+      APPLICATION: cloudtech
+      ENVIRONMENT: ${{ needs.set_env.outputs.environment }}
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDTECH_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDTECH_AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.CLOUDTECH_AWS_REGION }}
